@@ -59,7 +59,7 @@ mkdir -p BuildOutput
 steamdir=$STEAM_HOME
 manifest_path=$(pwd)/manifest.vdf
 contentroot=$(pwd)/$rootPath
-steamdir="/home/runner/Steam"
+steamdir="/opt/data/actions-runner/_work/_tool/steamcmd/latest/i386"
 
 cat << EOF > "manifest.vdf"
 "appbuild"
