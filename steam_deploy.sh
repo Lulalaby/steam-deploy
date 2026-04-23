@@ -1,4 +1,14 @@
-#!/bin/sh
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+steamdir=${STEAM_HOME:-$HOME/Steam}
+# this is relative to the action
+contentroot=$(pwd)/$rootPath
+
+# these are temporary file we create, so in a tmpdir
+mkdir BuildOutput
+manifest_path=$(pwd)/manifest.vdf
 
 echo ""
 echo "#################################"
@@ -17,14 +27,31 @@ i=1;
 export DEPOTS="\n  "
 until [ $i -gt 9 ]; do
   eval "currentDepotPath=\$depot${i}Path"
+  eval "currentDepotInstallScriptPath=\$depot${i}InstallScriptPath"
   if [ -n "$currentDepotPath" ]; then
     # depot1Path uses firstDepotId, depot2Path uses firstDepotId + 1, depot3Path uses firstDepotId + 2...
     currentDepot=$((firstDepotId + i - 1))
+
+    # If the depot has an install script, add it to the depot manifest
+    if [ -n "${currentDepotInstallScriptPath:-}" ]; then
+      echo ""
+      echo "Adding install script for depot ${currentDepot}..."
+      echo ""
+      installScriptDirective="\"InstallScript\" \"${currentDepotInstallScriptPath}\""
+    else
+      installScriptDirective=""
+    fi
+    if [ "${debugBranch}" = "true" ]; then
+      debugExcludes=""
+    else
+      debugExcludes='"FileExclusion" "*.pdb"\n  "FileExclusion" "**/*_BurstDebugInformation_DoNotShip*"\n  "FileExclusion" "**/*_BackUpThisFolder_ButDontShipItWithYourGame*"'
+    fi
 
     echo ""
     echo "Adding depot${currentDepot}.vdf ..."
     echo ""
     export DEPOTS="$DEPOTS  \"$currentDepot\" \"depot${currentDepot}.vdf\"\n  "
+
     cat << EOF > "depot${currentDepot}.vdf"
 "DepotBuildConfig"
 {
@@ -35,9 +62,10 @@ until [ $i -gt 9 ]; do
     "DepotPath" "."
     "recursive" "1"
   }
-  "FileExclusion" "*.pdb"
-  "FileExclusion" "**/*_BurstDebugInformation_DoNotShip*"
-  "FileExclusion" "**/*_BackUpThisFolder_ButDontShipItWithYourGame*"
+  $(echo "$debugExcludes" |sed 's/\\n/\
+/g')
+
+  $installScriptDirective
 }
 EOF
 
@@ -53,13 +81,6 @@ echo "#################################"
 echo "#    Generating App Manifest    #"
 echo "#################################"
 echo ""
-
-mkdir -p BuildOutput
-
-steamdir=$STEAM_HOME
-manifest_path=$(pwd)/manifest.vdf
-contentroot=$(pwd)/$rootPath
-steamdir="/opt/data/actions-runner/_work/_tool/steamcmd/latest/i386"
 
 cat << EOF > "manifest.vdf"
 "appbuild"
@@ -86,10 +107,12 @@ if [ -n "$steam_totp" ]; then
   echo "#################################"
   echo ""
 else
-  if [ ! -n "$configVdf" ] || [ ! -n "$ssfnFileName" ] || [ ! -n "$ssfnFileContents" ]; then
-    echo "MFA inputs are missing or incomplete! Cannot proceed."
+  if [ ! -n "$configVdf" ]; then
+    echo "Config VDF input is missing or incomplete! Cannot proceed."
     exit 1
   fi
+
+  steam_totp="INVALID"
 
   echo ""
   echo "#################################"
@@ -105,12 +128,34 @@ else
   echo "$configVdf" | base64 -d > "$steamdir/config/config.vdf"
   chmod 777 "$steamdir/config/config.vdf"
 
-  echo "Copying $steamdir/ssfn..."
-  echo "$ssfnFileContents" | base64 -d > "$steamdir/$ssfnFileName"
-  chmod 777 "$steamdir/$ssfnFileName"
-
   echo "Finished Copying SteamGuard Files!"
   echo ""
+fi
+
+echo ""
+echo "#################################"
+echo "#        Test login             #"
+echo "#################################"
+echo ""
+
+steamcmd +set_steam_guard_code "$steam_totp" +login "$steam_username" "$steam_password" +quit;
+
+ret=$?
+if [ $ret -eq 0 ]; then
+    echo ""
+    echo "#################################"
+    echo "#        Successful login       #"
+    echo "#################################"
+    echo ""
+else
+      echo ""
+      echo "#################################"
+      echo "#        FAILED login           #"
+      echo "#################################"
+      echo ""
+      echo "Exit code: $ret"
+
+      exit $ret
 fi
 
 echo ""
@@ -119,7 +164,7 @@ echo "#        Uploading build        #"
 echo "#################################"
 echo ""
 
-$STEAM_CMD +login "$steam_username" "$steam_password" "$steam_totp" +run_app_build $manifest_path +quit || (
+steamcmd +login "$steam_username" +run_app_build "$manifest_path" +quit || (
     echo ""
     echo "#################################"
     echo "#             Errors            #"
@@ -129,11 +174,20 @@ $STEAM_CMD +login "$steam_username" "$steam_password" "$steam_totp" +run_app_bui
     echo ""
     ls -alh
     echo ""
-    ls -alh $rootPath
+    ls -alh "$rootPath" || true
     echo ""
     echo "Listing logs folder:"
     echo ""
     ls -Ralph "$steamdir/logs/"
+
+    for f in "$steamdir"/logs/*; do
+      if [ -e "$f" ]; then
+        echo "######## $f"
+        cat "$f"
+        echo
+      fi
+    done
+
     echo ""
     echo "Displaying error log"
     echo ""
@@ -148,5 +202,14 @@ $STEAM_CMD +login "$steam_username" "$steam_password" "$steam_totp" +run_app_bui
     echo "#################################"
     echo ""
     ls -Ralph BuildOutput
+
+    for f in BuildOutput/*.log; do
+      echo "######## $f"
+      cat "$f"
+      echo
+    done
+
     exit 1
   )
+
+echo "manifest=${manifest_path}" >> $GITHUB_OUTPUT

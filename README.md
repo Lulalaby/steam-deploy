@@ -1,6 +1,6 @@
 # Steam Deploy
 
-[![Actions status](https://github.com/game-ci/steam-deploy/workflows/🚀/badge.svg?event=push&branch=main)](https://github.com/game-ci/steam-deploy/actions/workflows/main.yml)
+[![Actions status](https://github.com/game-ci/steam-deploy/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/game-ci/steam-deploy/actions/workflows/main.yml)
 
 Github Action to deploy a game to Steam
 
@@ -12,7 +12,8 @@ This action assumes you are registered as a [partner](https://partner.steamgames
 
 #### 1. Create a Steam Build Account
 
-Create a specialised builder account that only has access to `Edit App Metadata` and `Publish App Changes To Steam`.
+Create a specialised builder account that only has access to `Edit App Metadata` and `Publish App Changes To Steam`,
+and permissions to edit your specific app.
 
 https://partner.steamgames.com/doc/sdk/uploading#Build_Account
 
@@ -37,13 +38,36 @@ jobs:
   deployToSteam:
     runs-on: ubuntu-latest
     steps:
-      - uses: game-ci/steam-deploy@v1
+      - uses: game-ci/steam-deploy@v3
+        with:
+          username: ${{ secrets.STEAM_USERNAME }}          
+          configVdf: ${{ secrets.STEAM_CONFIG_VDF}}          
+          appId: 1234560
+          buildDescription: v1.2.3
+          rootPath: build
+          depot1Path: StandaloneWindows64
+          depot1InstallScriptPath: StandaloneWindows64/install_script.vdf
+          depot2Path: StandaloneLinux64
+          releaseBranch: prerelease
+```
+
+Option B. Using TOTP
+
+```yaml
+jobs:
+  deployToSteam:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: CyberAndrii/steam-totp@v1
+        name: Generate TOTP
+        id: steam-totp
+        with:
+          shared_secret: ${{ secrets.STEAM_SHARED_SECRET }}
+      - uses: game-ci/steam-deploy@v3
         with:
           username: ${{ secrets.STEAM_USERNAME }}
           password: ${{ secrets.STEAM_PASSWORD }}
-          configVdf: ${{ secrets.STEAM_CONFIG_VDF}}
-          ssfnFileName: ${{ secrets.STEAM_SSFN_FILE_NAME }}
-          ssfnFileContents: ${{ secrets.STEAM_SSFN_FILE_CONTENTS }}
+          totp: ${{ steps.steam-totp.outputs.code }}
           appId: 1234560
           buildDescription: v1.2.3
           rootPath: build
@@ -85,24 +109,72 @@ The username of the Steam Build Account that you created in setup step 1.
 
 #### password
 
-The password of the Steam Build Account that you created in setup step 1.
+The password of the Steam Build Account. Both this and `totp` are required together, see below.
 
 #### totp
 
-Deploying to Steam using TOTP. If this is not passed, `configVdf`, `ssfnFileName`, and `ssfnFileContents` are required.
+Deploying to Steam using TOTP. If this is not passed, `configVdf` is required.
 
-#### configVdf, ssfnFileName, and ssfnFileContents
+#### configVdf
 
-Deploying to Steam requires using Multi-Factor Authentication (MFA) through Steam Guard unless `totp` is passed.
-This means that simply using username and password isn't enough to authenticate with Steam. 
-However, it is possible to go through the MFA process only once by setting up GitHub Secrets for configVdf, ssfnFileName, and ssfnFileContents with these steps:
-1. Install [Valve's offical steamcmd](https://partner.steamgames.com/doc/sdk/uploading#1) on your local machine. All following steps will also be done on your local machine.
-1. Try to login with `steamcmd +login <username> <password> +quit`, which may prompt for the MFA code. If so, type in the MFA code that was emailed to your builder account's email address.
-1. Validate that the MFA process is complete by running `steamcmd +login <username> <password> +quit` again. It should not ask for the MFA code again.
-1. The folder from which you run `steamcmd` will now contain an updated `config/config.vdf` file. Use `cat config/config.vdf | base64 > config_base64.txt` to encode the file. Copy the contents of `config_base64.txt` to a GitHub Secret `STEAM_CONFIG_VDF`.
-1. Find the SSFN file, depending on your platform. **Windows**: The `steamcmd` folder will also contain two files of which the names look like `ssfn<numbers>`. **One of them is a hidden file**. [Find that hidden file](https://support.microsoft.com/en-us/windows/view-hidden-files-and-folders-in-windows-97fbc472-c603-9d90-91d0-1166d1d9f4b5) and use that hidden file as the correct SSFN file for the following steps. **Linux**: The SSFN file will be in the `steamcmd` folder. **Mac**: The SSFN will be at `~/Library/Application\ Support/Steam/`.
-1. Copy the name of the SSFN file to a GitHub Secret `STEAM_SSFN_FILE_NAME`.
-1. Use `cat <ssfnFileName> | base64 > ssfn_base64.txt` to encode the contents of the SSFN file. Copy the encoded contents inside `ssfn_base64.txt` to a GitHub Secret called `STEAM_SSFN_FILE_CONTENTS`.
+Steam Deploy supports two authentication methods:
+
+1. **Time-based One-Time Password (TOTP)** - Recommended if you have access to the shared secret.
+2. **Steam Guard MFA with `config.vdf`** - An alternative method requiring a one-time setup.
+
+If you are using the `config.vdf` method, follow these steps to set up the required GitHub Secret:
+
+1. **Install steamcmd**  
+   Install [Valve's official steamcmd](https://partner.steamgames.com/doc/sdk/uploading#1) on your local machine. All subsequent steps will also be performed on your local machine.
+
+2. **Log in to Steam using steamcmd**  
+   Run the following command to log in:
+   ```bash
+   steamcmd +login <username> <password> +quit
+   ```
+   If prompted, check your email for the MFA code and provide it when requested.
+
+3. **Validate MFA completion**  
+   To ensure MFA is complete, run:
+   ```bash
+   steamcmd +login <username> +quit
+   ```
+   If no MFA prompt appears, proceed to the next step.
+
+4. **Locate and encode the `config.vdf` file**  
+   The location of the `config.vdf` file depends on your operating system:
+   - **Windows/Linux**: The file is in the `config/config.vdf` relative to where you ran `steamcmd`.
+   - **macOS**: The file is located at `~/Library/Application Support/Steam/config/config.vdf`.
+
+    Encode the file and store it as a GitHub Secret:
+    ```bash
+    # Windows/Linux
+    cat config/config.vdf | base64 > config_base64.txt
+    
+    # macOS
+    cat ~/Library/Application\ Support/Steam/config/config.vdf | base64 > config_base64.txt
+    ```
+    ⚠️ **IMPORTANT**: The encoded `config.vdf` contains sensitive authentication data. Ensure you:
+   - Store it securely as a GitHub Secret named `STEAM_CONFIG_VDF`.
+   - Never commit the raw or encoded `config.vdf` to your repository.
+   - Rotate it periodically or if it is compromised.
+
+5. **Handling new MFA code requests**  
+   If the GitHub Action requests a new MFA code, run:
+   ```bash
+   steamcmd +set_steam_guard_code <code>
+   ```
+   Generate a new encoded `config.vdf` file (see step 4) and update the `STEAM_CONFIG_VDF` GitHub Secret with its contents.
+
+6. **Resolving 'License expired' error**  
+   If the action fails with the error `Logging in user ... to Steam Public...FAILED (License expired)`, follow these steps:
+  - On your local machine, run:
+    ```bash
+    steamcmd +login <username>
+    ```
+  - Enter the new Steam Guard code sent to your email.
+  - Generate a new encoded `config.vdf` file (see step 4).
+  - Update your `STEAM_CONFIG_VDF` GitHub Secret with the new encoded value.
 
 #### appId
 
@@ -140,11 +212,15 @@ The branch within steam that this build will be automatically put live on.
 
 Note that the `default` branch [has been observed to not work](https://github.com/game-ci/steam-deploy/issues/19) as a release branch, presumably because it is potentially dangerous.
 
+#### debugBranch
+
+If set to true, do not exclude debug files from the upload.
+
 ## Other Notes
 
 #### Excluded Files / Folders
 
-Certain file or folder patterns are excluded from the upload to Steam as they're unsafe to ship to players:
+Certain file or folder patterns are excluded from the upload to Steam as they're unsafe to ship to players, unless debugBranch is set to true:
 
 - `*.pdb` - symbols files
 - Folders that Unity includes in builds with debugging or other information that isn't intended to be sent to players:
