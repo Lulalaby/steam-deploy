@@ -38,7 +38,7 @@ jobs:
   deployToSteam:
     runs-on: ubuntu-latest
     steps:
-      - uses: game-ci/steam-deploy@v3
+      - uses: game-ci/steam-deploy@50f6b29fc64922e19a16d202a88fe199d394b536 # v3.2.1
         with:
           username: ${{ secrets.STEAM_USERNAME }}          
           configVdf: ${{ secrets.STEAM_CONFIG_VDF}}          
@@ -58,12 +58,12 @@ jobs:
   deployToSteam:
     runs-on: ubuntu-latest
     steps:
-      - uses: CyberAndrii/steam-totp@v1
+      - uses: CyberAndrii/steam-totp@1661caebf0a84a79be0166020f81837039137101 # v1.2.0
         name: Generate TOTP
         id: steam-totp
         with:
           shared_secret: ${{ secrets.STEAM_SHARED_SECRET }}
-      - uses: game-ci/steam-deploy@v3
+      - uses: game-ci/steam-deploy@50f6b29fc64922e19a16d202a88fe199d394b536 # v3.2.1
         with:
           username: ${{ secrets.STEAM_USERNAME }}
           password: ${{ secrets.STEAM_PASSWORD }}
