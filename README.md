@@ -76,31 +76,6 @@ jobs:
           releaseBranch: prerelease
 ```
 
-Option B. Using TOTP
-
-```yaml
-jobs:
-  deployToSteam:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: CyberAndrii/steam-totp@v1
-        name: Generate TOTP
-        id: steam-totp
-        with:
-          shared_secret: ${{ secrets.STEAM_SHARED_SECRET }}
-      - uses: game-ci/steam-deploy@v1
-        with:
-          username: ${{ secrets.STEAM_USERNAME }}
-          password: ${{ secrets.STEAM_PASSWORD }}
-          totp: ${{ steps.steam-totp.outputs.code }}
-          appId: 1234560
-          buildDescription: v1.2.3
-          rootPath: build
-          depot1Path: StandaloneWindows64
-          depot2Path: StandaloneLinux64
-          releaseBranch: prerelease
-```
-
 ## Configuration
 
 #### username
